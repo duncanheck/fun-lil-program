@@ -1,0 +1,28 @@
+# Python / VS Code
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Data / outputs (don't upload Excel results or large data)
+*.xlsx
+*.csv
+data/
+snapshot_*.xlsx
+*_results.xlsx
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log
+*.tmp

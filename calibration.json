@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-02-11",
+  "notes": "Generated from snapshot_mab_input (1)_results.xlsx after training run. Factors adjust physics predictions to match measured data. Use ml_model flags to switch to trained models.",
+
+  "moisture_factor": 1.18,
+  "notes_moisture": "Observed moisture ~18% higher than predicted (typical due to residual bound water not captured in d²-law).",
+
+  "rh_factor": 0.92,
+  "notes_rh": "Predicted RH slightly high (overestimates humidity buildup); multiply by 0.92 for better match.",
+
+  "outlet_temp_factor": 0.97,
+  "notes_outlet_temp": "Predicted outlet temp ~3% high (underestimates evaporative cooling); multiply by 0.97.",
+
+  "d50_factor": 1.12,
+  "notes_d50": "Predicted D50 ~12% low (underestimates agglomeration); multiply by 1.12.",
+
+  "morphology_model": "ml_model",
+  "notes_morphology": "Use trained morphology_model.pkl (RandomForestClassifier with balanced class weights). Threshold for dimpled spheres: Pe_integrated > 3.0 and Pi_ratio > 1.2.",
+
+  "moisture_model": "ml_model",
+  "notes_moisture_model": "Use trained moisture_model.pkl (RandomForestRegressor). Features include T1_C, feed_g_min, solids_frac, effective_pe_drug, integrated_pe.",
+
+  "outlet_temp_model": "ml_model",
+  "notes_outlet_temp_model": "Use trained outlet_temp_model.pkl (GradientBoostingRegressor). Features include T1_C, feed_g_min, m1_m3ph, water_loading_g_m3.",
+
+  "d50_model": "ml_model",
+  "notes_d50_model": "Use trained d50_model.pkl (RandomForestRegressor). Features include atom_pressure, feed_g_min, viscosity_moni, solids_frac.",
+
+  "rh_outlet_model": "ml_model",
+  "notes_rh_outlet_model": "Use trained rh_outlet_model.pkl (GradientBoostingRegressor). Features include T1_C, RH1, T_outlet_C, evap_water_kgph."
+}
