@@ -32,9 +32,6 @@ PI = math.pi
 R_VAPOR = 461.5
 P_AMBIENT = 101325.0
 
-# ... rest of your functions unchanged (calculate_shell_thickness, estimate_shell_permeability, etc.)
-# Make sure calculate_internal_pressure_darcy uses the imported calculate_psat_tetens
-
 # Typical pore size ranges (m) - used when porosity estimated
 PORE_SIZE_RANGES = {
     'moni': 10e-9,        # amphiphilic polymer - very dense
@@ -91,12 +88,16 @@ def estimate_shell_permeability(
         # Drier = more porous
         moisture_effect = 0.25 * (1 - moisture)
 
+        # Normalize composition to fractions before use
+        total_comp = sum(composition.values()) or 1.0
+        norm = {k: v / total_comp for k, v in composition.items()}
+
         # Composition effect (dense = lower porosity)
-        protein_frac = composition.get('protein', 0) + composition.get('drug', 0) + composition.get('mab', 0)
-        moni_frac = composition.get('moni', 0)
-        sugar_frac = composition.get('sugar', 0) + composition.get('stabilizer', 0)
-        buffer_frac = composition.get('buffer', 0)
-        additive_frac = composition.get('additive', 0)
+        protein_frac = norm.get('protein', 0) + norm.get('drug', 0) + norm.get('mab', 0)
+        moni_frac = norm.get('moni', 0)
+        sugar_frac = norm.get('sugar', 0) + norm.get('stabilizer', 0)
+        buffer_frac = norm.get('buffer', 0)
+        additive_frac = norm.get('additive', 0)
 
         comp_effect = -0.15 * protein_frac - 0.25 * moni_frac + 0.1 * sugar_frac + 0.05 * (buffer_frac + additive_frac)
         porosity = base_porosity + moisture_effect + comp_effect
@@ -245,8 +246,6 @@ def predict_morphology_from_pressure(
     if pe_int > 5:
         return "cracked shells", f"Excessive pressure + cumulative stress (Π = {Pi:.2f}, Pe_int = {pe_int:.2f})"
     return "cracked shells", f"Excessive pressure causes failure (Π ≥ 5.0)"
-
-    return "unknown", "Insufficient data for prediction"
 
 
 def calculate_complete_darcy_analysis(
