@@ -15,6 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 import os
+import traceback
 from typing import Dict, List, Optional
 from tqdm import tqdm  # For progress bar
 
@@ -29,7 +30,7 @@ except ImportError as e:
     print(f"Warning: Could not import simulation.py - {e}")
     SIMULATION_AVAILABLE = False
 
-COMPOUND_DB = load_compound_database() if 'load_compound_database' in globals() else {}
+COMPOUND_DB = load_compound_database() if SIMULATION_AVAILABLE else {}
 
 class IntegratedSurfaceCompositionAnalyzer:
     def __init__(self):
@@ -96,6 +97,11 @@ class IntegratedSurfaceCompositionAnalyzer:
                 result_dict = dict(zip(param_names[:len(result)], result))
             else:
                 result_dict = result
+
+            # Unpack pe_metrics sub-dict so compound-specific keys are top-level
+            pe_metrics_dict = result_dict.get('pe_metrics', {})
+            if isinstance(pe_metrics_dict, dict):
+                result_dict.update(pe_metrics_dict)
 
             # Extract key physics outputs (dynamic from simulation)
             pe_d_data = {

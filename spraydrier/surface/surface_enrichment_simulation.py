@@ -42,6 +42,7 @@ else:
         print(f"Could not read workbook '{wb_path}': {e}")
         raise SystemExit(2)
 
+
 def find_row_label(df, substrs):
     """Return the index label from df (index) that contains any of the substrings in substrs (case-insensitive)."""
     for s in substrs:
@@ -52,6 +53,32 @@ def find_row_label(df, substrs):
             except Exception:
                 continue
     return None
+
+
+def validate_required_rows(df):
+    """Ensure required numeric rows exist in the workbook index. Exit if missing."""
+    required_label_sets = {
+        'Drug Substance conc': ['Drug Substance conc', 'Drug Substance conc.', 'ds_conc'],
+        'Moni conc': ['Moni conc', 'Moni conc.', 'moni_conc'],
+        'D32': ['D32 (calculated', 'D32 (calculated with', 'D32 (calculated with Moni)'],
+        'Surface recession velocity': ['Surface recession velocity', 'Evaporation Velocity'],
+        'D_moni': ['D_moni', 'D_MoNI', 'D_MoNI (m2/s)'],
+    }
+    missing = []
+    for human, substrs in required_label_sets.items():
+        if find_row_label(df, substrs) is None:
+            missing.append(human)
+    if missing:
+        print('\nERROR: required numeric rows missing from workbook index:')
+        for m in missing:
+            print('  -', m)
+        print('\nPlease add these rows to the workbook or provide them via per-column JSON parameters.')
+        raise SystemExit(2)
+
+
+# Validate early — before any data extraction
+validate_required_rows(wb)
+
 
 # Batch ids are stored in the header (columns) starting at column 2 (Excel col B)
 batch_ids = list(wb.columns)
@@ -109,11 +136,15 @@ d_moni_label = find_row_label(wb, ['D_moni', 'D_MoNI', 'D_moni ('])
 d_igg_row = read_row_as_float(wb, d_igg_label, default_len=n_batches, default=np.nan)
 d_moni_row = read_row_as_float(wb, d_moni_label, default_len=n_batches, default=np.nan)
 
-# We may also have attempted to parse a 'Drug Substance' row earlier into d_igg_per_column;
-# if present this can be used as a D_igg source (kept for backward compatibility).
-try:
-    d_igg_per_column  # may exist from earlier code path
-except NameError:
+# Read per-column D_igg from Drug Substance row if present (priority: explicit D row > this > default)
+drug_substance_label = find_row_label(wb, ['Drug Substance', 'Drug Substance (mg/mL)'])
+if drug_substance_label is not None and drug_substance_label in wb.index:
+    try:
+        raw = wb.loc[drug_substance_label].values
+        d_igg_per_column = pd.to_numeric(raw, errors='coerce').to_numpy(dtype=float)
+    except Exception:
+        d_igg_per_column = np.full(n_batches, np.nan)
+else:
     d_igg_per_column = np.full(n_batches, np.nan)
 
 # Build per-batch D arrays, priority: explicit D row > Drug Substance row > default
@@ -177,80 +208,6 @@ else:
     other_concs[index_249_003c] = optimized_sbecd_conc
     other_pe[index_249_003c] = pe_sbecd_optimized[index_249_003c]
 
-# Strict validation: require key numeric rows to be present in the workbook.
-def validate_required_rows(df):
-    """Ensure required numeric rows exist in the workbook index. Exit if missing.
-
-    Required: Drug Substance conc, Moni conc, D32 (calculated), Surface recession velocity
-    Optionally require diffusion coefficients rows if present as named rows.
-    """
-    required_label_sets = {
-        'Drug Substance conc': ['Drug Substance conc', 'Drug Substance conc.', 'ds_conc'],
-        'Moni conc': ['Moni conc', 'Moni conc.', 'moni_conc'],
-        'D32': ['D32 (calculated', 'D32 (calculated with', 'D32 (calculated with Moni)'],
-        'Surface recession velocity': ['Surface recession velocity', 'Evaporation Velocity']
-    }
-    missing = []
-    for human, substrs in required_label_sets.items():
-        if find_row_label(df, substrs) is None:
-            missing.append(human)
-
-    # Do not require D_igg to be present as a named row; it may be provided per-column
-    diff_labels = [
-        ('D_moni', ['D_moni', 'D_MoNI', 'D_MoNI (m2/s)'])
-    ]
-    for human, substrs in diff_labels:
-        if find_row_label(df, substrs) is None:
-            missing.append(human)
-
-    if missing:
-        print('\nERROR: required numeric rows missing from workbook index:')
-        for m in missing:
-            print('  -', m)
-        print('\nPlease add these rows to the workbook or provide them via per-column JSON parameters.')
-        raise SystemExit(2)
-
-# Run validation now and fail early if required rows are absent.
-validate_required_rows(wb)
-
-# Ensure d_igg_per_column exists (may be filled later from Drug Substance row)
-try:
-    d_igg_per_column
-except NameError:
-    d_igg_per_column = np.full(n_batches, np.nan)
-
-# Try to read per-column D_igg values from a 'Drug Substance' row if present.
-# The workbook uses a 'Drug Substance' row (row 16 in the original sheet) that may
-# contain per-batch numeric values. If those values are actually MW rather than
-# diffusion coefficients, we need a mapping; for now we assume they are D_igg
-# values in m^2/s. If you need a MW->D mapping, tell me and I'll add it.
-drug_substance_label = find_row_label(wb, ['Drug Substance', 'Drug Substance (mg/mL)', 'Drug Substance'])
-if drug_substance_label is not None and drug_substance_label in wb.index:
-    try:
-        raw = wb.loc[drug_substance_label].values
-        d_igg_per_column = pd.to_numeric(raw, errors='coerce').to_numpy(dtype=float)
-    except Exception:
-        d_igg_per_column = np.full(n_batches, np.nan)
-else:
-    d_igg_per_column = np.full(n_batches, np.nan)
-
-# Default scalar D_igg
-d_igg_default = 1.8e-11
-
-# Build a per-batch D_igg array using per-column values when present, else default
-d_igg_array = np.full(n_batches, d_igg_default, dtype=float)
-for i in range(n_batches):
-    try:
-        val = d_igg_per_column[i]
-        if not pd.isna(val) and val > 0:
-            d_igg_array[i] = float(val)
-    except Exception:
-        # leave default
-        pass
-
-# Calculate corrected Pe values using per-column D_igg
-pe_igg = v * r / d_igg_array
-
 # Always run the full time-dependent solver per batch and write timeseries.
 # The static heuristic branch has been removed to ensure the time-dependent
 # physics-based solver is used consistently.
@@ -312,43 +269,3 @@ writer.close()
 pd.DataFrame(summary).to_excel('surface_percentages_td_summary.xlsx', index=False)
 print(f"Wrote time-dependent sheets to {out_wb} and summary to surface_percentages_td_summary.xlsx")
 raise SystemExit(0)
-
-# Calculate surface percentages
-results = []
-for i in range(n_batches):
-    pe_ds_val = pe_igg_optimized[i] if index_249_003c is not None and i == index_249_003c else pe_igg[i]
-    pe_moni_val = pe_moni_optimized[i] if index_249_003c is not None and i == index_249_003c else pe_moni[i]
-    other_pe_val = [other_pe[i]]
-    percent_ds, percent_moni, percent_others = calculate_surface_percentages(
-        ds_conc[i] if i < len(ds_conc) else 0.0,
-        moni_conc[i] if i < len(moni_conc) else 0.0,
-        [other_concs[i]] if i < len(other_concs) else [0.0],
-        pe_ds_val,
-        pe_moni_val,
-        other_pe_val,
-        total_solids[i] if i < len(total_solids) else 0.0,
-        v[i] if i < len(v) else 0.0,
-        migration_weight=1.0
-    )
-    results.append({
-        'Batch ID': batch_ids[i],
-        'Reported Pe_IgG': pe_igg_reported[i] if i < len(pe_igg_reported) else np.nan,
-        'Reported Pe_MoNI': pe_moni_reported[i] if i < len(pe_moni_reported) else np.nan,
-        'Calculated Pe_IgG': pe_igg[i] if i < len(pe_igg) else np.nan,
-        'Calculated Pe_MoNI': pe_moni[i] if i < len(pe_moni) else np.nan,
-        '%DS at Surface': percent_ds,
-        '%MoNI at Surface': percent_moni,
-        '%Other Compounds at Surface': percent_others[0] if len(percent_others) > 0 else 0.0
-    })
-
-# Convert results to DataFrame
-results_df = pd.DataFrame(results)
-
-# Display results and save
-print("Surface Percentage Results:")
-print(results_df)
-output_file = "surface_percentages_simulation.xlsx"
-results_df.to_excel(output_file, index=False)
-print(f"Results saved to {output_file}")
-
- 
