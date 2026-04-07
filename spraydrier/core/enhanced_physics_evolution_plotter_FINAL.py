@@ -26,23 +26,7 @@ import json
 import traceback
 
 from typing import Dict, Optional, Any, List, Tuple
-# Replace these:
-from .constants import R_AIR, R_N2, R_v, C_p_water, C_p_vapor, R_UNIVERSAL, M_AIR, M_N2
-from .properties import (
-    calculate_psat_tetens,
-    calculate_wet_bulb_temperature,
-    fetch_gas_properties_from_table,
-    classify_compound,
-    calculate_mixed_solution_density
-)
-from .peclet_calculator import calculate_all_peclet_metrics
-from .diffusion_coefficient import calculate_diffusion_for_compounds
-from .temperature_evolution import calculate_realistic_droplet_temperature_evolution
-from .tg_calculator import detect_glass_transition, calculate_mixture_tg_gordon_taylor, calculate_shell_and_tg
-from .darcy_pressure import calculate_complete_darcy_analysis
 
-
-# With absolute imports:
 from spraydrier.core.constants import R_AIR, R_N2, R_v, C_p_water, C_p_vapor, R_UNIVERSAL, M_AIR, M_N2
 from spraydrier.core.properties import (
     calculate_psat_tetens,
@@ -57,49 +41,23 @@ from spraydrier.core.temperature_evolution import calculate_realistic_droplet_te
 from spraydrier.core.tg_calculator import detect_glass_transition, calculate_mixture_tg_gordon_taylor, calculate_shell_and_tg
 from spraydrier.core.darcy_pressure import calculate_complete_darcy_analysis
 
-# ────────────────────────────────────────────────
-# Project imports (relative to spraydrier/core/)
-# ────────────────────────────────────────────────
-try:
-    from spraydrier.core.properties import classify_compound
-    CLASSIFY_AVAILABLE = True
-except ImportError:
-    CLASSIFY_AVAILABLE = False
-    print("[!] Warning: classify_compound not available")
+# Availability flags (modules already imported unconditionally above)
+CLASSIFY_AVAILABLE = True
+DARCY_AVAILABLE = True
+PECLET_AVAILABLE = True
+TEMP_EVOLUTION_AVAILABLE = True
 
-try:
-    from spraydrier.core.darcy_pressure import calculate_complete_darcy_analysis
-    DARCY_AVAILABLE = True
-except ImportError:
-    DARCY_AVAILABLE = False
-    print("[!] Warning: darcy_pressure not available")
-
-try:
-    from spraydrier.core.peclet_calculator import calculate_all_peclet_metrics
-    PECLET_AVAILABLE = True
-except ImportError:
-    PECLET_AVAILABLE = False
-    print("[!] Warning: peclet_calculator not available")
-
+# Extra tg_calculator symbols not in the unconditional import above
 try:
     from spraydrier.core.tg_calculator import (
         load_component_tg_from_json,
-        detect_glass_transition,
         tg_evolution_during_drying,
         calculate_mass_fractions_from_moisture,
-        calculate_mixture_tg_gordon_taylor
     )
     TG_AVAILABLE = True
 except ImportError:
     TG_AVAILABLE = False
-    print("[!] Warning: tg_calculator not available")
-
-try:
-    from spraydrier.core.temperature_evolution import calculate_realistic_droplet_temperature_evolution
-    TEMP_EVOLUTION_AVAILABLE = True
-except ImportError:
-    TEMP_EVOLUTION_AVAILABLE = False
-    print("[!] Warning: temperature_evolution not available")
+    print("[!] Warning: tg_calculator extended functions not available")
 
 # ────────────────────────────────────────────────
 # Core enhanced shrinkage function (FULLY FIXED)

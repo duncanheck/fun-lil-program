@@ -40,18 +40,18 @@ except ImportError as e:
 # ────────────────────────────────────────────────
 # Output from your updated output.py (relative import from parent)
 # ────────────────────────────────────────────────
-from output import save_output, preferred_order, label_map
+from spraydrier.output import save_output, preferred_order, label_map
 
 # ────────────────────────────────────────────────
 # Configuration & utilities
 # ────────────────────────────────────────────────
-from config import CalibrationConfig, ModelPaths, load_calibration
+from spraydrier.config import CalibrationConfig, ModelPaths, load_calibration
 
 # ────────────────────────────────────────────────
 # ML models loading
 # ────────────────────────────────────────────────
 try:
-    from ml.ml_models import LoadedModels, load_models
+    from spraydrier.ml.ml_models import LoadedModels, load_models
     print("[engine] ML models loader found")
 except Exception as e:
     LoadedModels = Any
@@ -62,7 +62,7 @@ except Exception as e:
 # Surface composition analyzer
 # ────────────────────────────────────────────────
 try:
-    from surface.integrated_surface_composition_analyzer import (
+    from spraydrier.surface.integrated_surface_composition_analyzer import (
         IntegratedSurfaceCompositionAnalyzer,
     )
     print("[engine] Surface analyzer found")
