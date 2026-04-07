@@ -40,18 +40,18 @@ except ImportError as e:
 # ────────────────────────────────────────────────
 # Output from your updated output.py (relative import from parent)
 # ────────────────────────────────────────────────
-from output import save_output, preferred_order, label_map
+from spraydrier.output import save_output, preferred_order, label_map
 
 # ────────────────────────────────────────────────
 # Configuration & utilities
 # ────────────────────────────────────────────────
-from config import CalibrationConfig, ModelPaths, load_calibration
+from spraydrier.config import CalibrationConfig, ModelPaths, load_calibration
 
 # ────────────────────────────────────────────────
 # ML models loading
 # ────────────────────────────────────────────────
 try:
-    from ml.ml_models import LoadedModels, load_models
+    from spraydrier.ml.ml_models import LoadedModels, load_models
     print("[engine] ML models loader found")
 except Exception as e:
     LoadedModels = Any
@@ -62,7 +62,7 @@ except Exception as e:
 # Surface composition analyzer
 # ────────────────────────────────────────────────
 try:
-    from surface.integrated_surface_composition_analyzer import (
+    from spraydrier.surface.integrated_surface_composition_analyzer import (
         IntegratedSurfaceCompositionAnalyzer,
     )
     print("[engine] Surface analyzer found")
@@ -185,7 +185,7 @@ class SprayDryerEngine:
             "m1_m3ph": 30.0,
         }
 
-        # Synced with your simulation.py tuple
+        # Synced with simulation.py return tuple (order must match exactly)
         self._sim_param_names = [
             'batch_id', 'dryer', 'V_chamber_m3', 'cyclone_type', 'cyclone_factor', 'gas1', 'T1_C', 'RH1', 'm1_m3ph',
             'gas2', 'T2_C', 'RH2', 'atom_pressure', 'nozzle_tip_d_mm', 'nozzle_cap_d_mm', 'nozzle_level', 'T_outlet_C',
@@ -206,8 +206,22 @@ class SprayDryerEngine:
             'actual_water_evap', 'We', 'Oh', 'D32_without_moni', 'D32_with_moni', 'radius_history_um', 't_eval',
             'pe_metrics', 'energy_balance', 'efficiency', 'required_inlet_temp', 'sigma_effective', 'Nu', 'Sh', 'h',
             'k_m', 'condensed_bulk_kg_s', 'condensed_surface_kg_s', 'morphology_indicators', 'Tg_array', 'temperature_array',
-            'shell_formation_time', 'enhanced_tg_results'
+            'shell_formation_time', 'enhanced_tg_results', 'v_s_initial', 'darcy_results',
         ]
+
+    @staticmethod
+    def _is_empty(v: Any) -> bool:
+        """Safe NaN/empty check that handles scalars, strings, lists, and arrays."""
+        if v is None:
+            return True
+        if isinstance(v, str):
+            return v.strip() == ""
+        try:
+            result = pd.isna(v)
+            # pd.isna returns array-like for collections — treat as non-empty
+            return bool(result) if isinstance(result, (bool, np.bool_)) else False
+        except (ValueError, TypeError):
+            return False
 
     def _normalize_inputs_dict(
         self,
@@ -222,7 +236,7 @@ class SprayDryerEngine:
             if k in self._reserved_top_level:
                 continue
             k2 = self._synonyms.get(k, k)
-            if pd.isna(v) or v == "":
+            if self._is_empty(v):
                 continue
             out[k2] = v
 
@@ -233,13 +247,13 @@ class SprayDryerEngine:
             warnings_out.append(f"Ignored (handled separately): {ignored}")
 
         for k, v in self._required_defaults.items():
-            if k not in out or pd.isna(out[k]) or out[k] == "":
+            if k not in out or self._is_empty(out[k]):
                 out[k] = v
                 warnings_out.append(f"Used default for {k}: {v}")
 
         # Fix batch_id
         batch_id_val = out.get("batch_id")
-        if pd.isna(batch_id_val) or batch_id_val is None or str(batch_id_val).strip() == "":
+        if batch_id_val is None or self._is_empty(batch_id_val) or str(batch_id_val).strip() == "":
             out["batch_id"] = trial_id or f"batch_{time.strftime('%Y%m%d_%H%M%S')}"
             warnings_out.append("batch_id was missing/NaN → assigned default")
 
@@ -272,15 +286,16 @@ class SprayDryerEngine:
 
             outputs: Dict[str, Any] = {"simulation": sim_out}
 
-            # Apply calibration factors (if loaded)
-            if hasattr(self.calibration, 'moisture_factor'):
-                sim_out['moisture_predicted'] = sim_out.get('moisture_predicted', 0.05) * self.calibration.moisture_factor
-            if hasattr(self.calibration, 'rh_factor'):
-                sim_out['RH_out'] = sim_out.get('RH_out', 0.0) * self.calibration.rh_factor
-            if hasattr(self.calibration, 'outlet_temp_factor'):
-                sim_out['T_outlet_C'] = sim_out.get('T_outlet_C', 80.0) * self.calibration.outlet_temp_factor
-            if hasattr(self.calibration, 'd50_factor'):
-                sim_out['D50_calc'] = sim_out.get('D50_calc', 3.0) * self.calibration.d50_factor
+            # Apply calibration factors (multiplicative; 1.0 = no change)
+            cal = self.calibration
+            if cal.moisture_factor != 1.0:
+                sim_out['moisture_predicted'] = sim_out.get('moisture_predicted', 0.05) * cal.moisture_factor
+            if cal.rh_factor != 1.0:
+                sim_out['RH_out'] = sim_out.get('RH_out', 0.0) * cal.rh_factor
+            if cal.outlet_temp_factor != 1.0:
+                sim_out['T_outlet_C'] = sim_out.get('T_outlet_C', 80.0) * cal.outlet_temp_factor
+            if cal.d50_factor != 1.0:
+                sim_out['D50_calc'] = sim_out.get('D50_calc', 3.0) * cal.d50_factor
 
             # Surface analysis (fixed: no 'sim_out' kwarg)
             if self.surface_analyzer is not None:
@@ -296,14 +311,23 @@ class SprayDryerEngine:
                 except Exception as e:
                     res.warnings.append(f"Surface analysis failed: {e}")
 
-            # ML morphology prediction (safe check)
+            # ML morphology prediction — features drawn from pe_metrics sub-dict + top-level sim keys
             if self.models is not None:
                 try:
                     if hasattr(self.models.morphology, 'predict'):
-                        features = {k: v for k, v in sim_out.items() if k in ['Pe', 'Ma', 'T_outlet_C', 'RH_out', 'solids_frac']}
-                        morphology = self.models.morphology.predict([list(features.values())])[0]
+                        pe_metrics = sim_out.get('pe_metrics', {}) if isinstance(sim_out, dict) else {}
+                        if not isinstance(pe_metrics, dict):
+                            pe_metrics = {}
+                        feature_vec = [
+                            float(pe_metrics.get('effective_pe', 1.0)),
+                            float(pe_metrics.get('max_pe', 5.0)),
+                            float(sim_out.get('T_outlet_C', 80.0)),
+                            float(sim_out.get('RH_out', 15.0)),
+                            float(sim_out.get('solids_frac', 0.1)),
+                        ]
+                        morphology = self.models.morphology.predict([feature_vec])[0]
                         outputs['morphology_predicted'] = morphology
-                        outputs['morphology_mechanism'] = 'Based on Pe > 10 and Darcy pressure'
+                        outputs['morphology_mechanism'] = 'ML: Pe_eff, Pe_max, T_outlet, RH_out, solids_frac'
                     else:
                         raise AttributeError("Loaded morphology model has no .predict method")
                 except Exception as e:
@@ -358,10 +382,14 @@ class SprayDryerEngine:
         try:
             df = pd.read_excel(excel_path, sheet_name=sheet_name)
 
-            # Detect format
-            if 'trial_id' in df.columns.str.lower():
-                print("[engine] Detected new results format (trials as rows)")
-                df = df.set_index('trial_id').T
+            # Detect format: new = trials as rows with a 'trial_id' column
+            col_lower = df.columns.str.lower().tolist()
+            if 'trial_id' in col_lower:
+                print("[engine] Detected new format (trials as rows)")
+                # Rename column to canonical 'trial_id' regardless of case
+                df = df.rename(columns={df.columns[col_lower.index('trial_id')]: 'trial_id'})
+                df = df.set_index('trial_id')
+                # df now has trials as rows, params as columns — correct orientation
             else:
                 # Old format: params as rows, batches as columns
                 print("[engine] Detected old format (parameters as rows)")
@@ -373,7 +401,7 @@ class SprayDryerEngine:
                 data['batch_id'] = batch_ids
                 df = data
 
-            print(f"[engine] Loaded {len(df.columns)} trials from {excel_path}")
+            print(f"[engine] Loaded {len(df)} trials from {excel_path}")
         except Exception as e:
             print(f"[engine] Failed to load {excel_path}: {e}")
             return []
@@ -381,8 +409,8 @@ class SprayDryerEngine:
         trials = []
         for idx, row in df.iterrows():
             params = row.to_dict()
-            batch_id_raw = params.get('batch_id')
-            trial_id = str(batch_id_raw).strip() if pd.notna(batch_id_raw) and batch_id_raw else f"batch_{idx + 1}"
+            batch_id_raw = params.get('batch_id', idx)
+            trial_id = str(batch_id_raw).strip() if batch_id_raw and not self._is_empty(batch_id_raw) else str(idx)
             trial = TrialInput(trial_id=trial_id, params=params)
             trials.append(trial)
 
@@ -453,8 +481,8 @@ if __name__ == "__main__":
 
     print(f"\n[MAIN] Running in {args.mode.upper()} mode with file: {args.input}")
 
-    # Use correct path to ml/ folder
-    ml_base = Path("spraydrier/ml")
+    # Use absolute path to ml/ folder relative to this file
+    ml_base = Path(__file__).parent / "ml"
     model_paths = ModelPaths(
         d50=ml_base / "d50_model.pkl",
         moisture=ml_base / "moisture_model.pkl",

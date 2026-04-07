@@ -22,6 +22,7 @@ try:
     MAIN_IMPORTS_AVAILABLE = True
 except ImportError:
     MAIN_IMPORTS_AVAILABLE = False
+    from scipy.optimize import brentq
     # Fallback inline implementations
     def calculate_psat_tetens(T_C):
         if T_C >= 50:

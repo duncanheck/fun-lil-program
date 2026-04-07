@@ -276,6 +276,28 @@ def run_full_spray_drying_simulation(inputs):
         p_d_atm_exit = 101325 - Pv_out
         p_v_atm_exit = Pv_out
         rho_ag_exit = (p_d_atm_exit / (R_d * T_outlet_ag_K)) + (p_v_atm_exit / (R_v * T_outlet_ag_K))
+        rho_final = rho_ag_exit
+
+        # Atomizing gas viscosity
+        mu_g_atom = gas_props_atom.get('mu_g', 1.8e-5)
+
+        # Ambient saturation and partial pressures
+        Psat_ambient = calculate_psat_tetens(T_ambient)
+        p_v_ambient = (RH1 / 100) * Psat_ambient
+        p_d_ambient = 101325.0 - p_v_ambient
+
+        # Drying gas inlet partial pressures and humidity ratio
+        Psat_initial = calculate_psat_tetens(T1_C)
+        p_v = (RH1 / 100) * Psat_initial
+        p_d = 101325.0 - p_v
+        X_w = 0.622 * p_v / max(p_d, 1e-6)
+
+        # Atomizing gas inlet conditions
+        Psat_initial_ag = calculate_psat_tetens(T2_C)
+        p_v_atm_in = (RH2 / 100) * Psat_initial_ag
+        p_d_atm_in = 101325.0 - p_v_atm_in
+        X_w_atom = 0.622 * p_v_atm_in / max(p_d_atm_in, 1e-6)
+        rho_atom_in = (p_d_atm_in / (R_ag * T2_K)) + (p_v_atm_in / (R_v * T2_K))
 
         phi = RH_out / 100 if 'RH_out' in locals() else 0.5
 
@@ -318,6 +340,7 @@ def run_full_spray_drying_simulation(inputs):
 
         # Update final values
         RH_out = new_RH
+        phi = RH_out / 100
         moisture_predicted = new_moist
         condensed_kg_s = evap_kgph / 3600 * 0.08
 

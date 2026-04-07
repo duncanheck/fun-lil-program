@@ -22,21 +22,6 @@ Dependencies: numpy
 import numpy as np
 from typing import Dict, Optional, List
 
-# ────────────────────────────────────────────────
-# Absolute imports (fixed for root-level execution and __init__.py loading)
-# ────────────────────────────────────────────────
-from spraydrier.core.constants import R_AIR, R_N2, R_v, C_p_water, C_p_vapor, R_UNIVERSAL, M_AIR, M_N2
-from spraydrier.core.properties import (
-    calculate_psat_tetens,
-    calculate_wet_bulb_temperature,
-    fetch_gas_properties_from_table,
-    classify_compound,
-    calculate_mixed_solution_density
-)
-from spraydrier.core.diffusion_coefficient import calculate_diffusion_for_compounds
-from spraydrier.core.temperature_evolution import calculate_realistic_droplet_temperature_evolution
-from spraydrier.core.tg_calculator import detect_glass_transition, calculate_mixture_tg_gordon_taylor, calculate_shell_and_tg
-from spraydrier.core.darcy_pressure import calculate_complete_darcy_analysis
 
 
 def calculate_all_peclet_metrics(

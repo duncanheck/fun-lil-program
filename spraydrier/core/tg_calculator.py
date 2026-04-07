@@ -20,13 +20,16 @@ from pathlib import Path
 import math
 from typing import Dict, Tuple, Optional, List
 
-# Relative import from core/
+# Absolute import preferred; relative fallback for package context
 try:
-    from .properties import classify_compound
+    from spraydrier.core.properties import classify_compound
 except ImportError:
-    print("Warning: classify_compound not available from properties.py - using fallback")
-    def classify_compound(name, mw, conc_mg_ml=0.0, is_drug=False):
-        return {'class': 'unknown', 'tg': None, 'k': 0.25, 'specific_volume': 0.7, 'mw': mw}
+    try:
+        from .properties import classify_compound
+    except ImportError:
+        print("Warning: classify_compound not available from properties.py - using fallback")
+        def classify_compound(name, mw, conc_mg_ml=0.0, is_drug=False):
+            return {'class': 'unknown', 'tg': None, 'k': 0.25, 'specific_volume': 0.7, 'mw': mw}
 
 # ────────────────────────────────────────────────
 # Constants
