@@ -26,7 +26,6 @@ from typing import Dict, Tuple, Optional
 
 # Absolute import for reliability during debugging
 from spraydrier.core.properties import calculate_psat_tetens
-print("[DARCY] Successfully imported calculate_psat_tetens")  # DEBUG - remove later
 
 # Physical constants
 PI = math.pi
