@@ -22,6 +22,9 @@ Dependencies: numpy
 import numpy as np
 from typing import Dict, Optional, List
 
+# np.trapz was removed in NumPy 2.0; prefer np.trapezoid and fall back for old versions
+_trapezoid = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+
 
 
 def calculate_all_peclet_metrics(
@@ -76,7 +79,7 @@ def calculate_all_peclet_metrics(
     # Derived global metrics
     dt = np.diff(time_history_s)
     dt = np.concatenate([dt, [dt[-1]]])  # Pad for integration
-    integrated_pe = np.trapz(pe_global, time_history_s)
+    integrated_pe = _trapezoid(pe_global, time_history_s)
     total_time = time_history_s[-1] - time_history_s[0]
     effective_pe = integrated_pe / total_time if total_time > 0 else 0.0
     max_pe = np.max(pe_global)
@@ -97,7 +100,7 @@ def calculate_all_peclet_metrics(
             pe_comp = v_evap * radius_m / D
             pe_comp = np.maximum(pe_comp, 0.0)
 
-            integrated_comp = np.trapz(pe_comp, time_history_s)
+            integrated_comp = _trapezoid(pe_comp, time_history_s)
             effective_comp = integrated_comp / total_time if total_time > 0 else 0.0
             max_comp = np.max(pe_comp)
 

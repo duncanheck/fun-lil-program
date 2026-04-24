@@ -79,7 +79,7 @@ def run_full_spray_drying_simulation(inputs):
         dryer = inputs.get("dryer", "b290")
         V_chamber_m3 = safe_float(inputs.get("V_chamber_m3"), 0.00212)
         cyclone_type = inputs.get("cyclone_type", "standard")
-        cyclone_factor = 1.2 if cyclone_type.lower() == "high" else 1.0
+        cyclone_factor = 1.2 if str(cyclone_type).lower() == "high" else 1.0
         gas1 = inputs.get("gas1", "air")
         T1_C = safe_float(inputs.get("T1_C"), 150.0)
         RH1 = safe_float(inputs.get("RH1"), 5.0)
@@ -119,7 +119,7 @@ def run_full_spray_drying_simulation(inputs):
         T2_K = T2_C + 273.15
 
         # Viscosity & surface tension
-        viscosity = 0.00003 * ds_conc - 0.0003 if ds.lower() in ["pgt121", "igg"] else 0.001
+        viscosity = 0.00003 * ds_conc - 0.0003 if str(ds).lower() in ["pgt121", "igg"] else 0.001
         surface_tension = 0.072
 
         feed_g_min = feed_mL_min * rho_l_input
@@ -128,10 +128,16 @@ def run_full_spray_drying_simulation(inputs):
         surface_tension_moni = surface_tension * (1 - 0.3 * ratio)
 
         # ────────────────────────────────────────────────
-        # 2. Droplet size (Buchi correlation)
+        # 2. Droplet size (Buchi correlation) — parenthesized so * binds before **
         # ────────────────────────────────────────────────
-        D32_um = 108.7 * (atom_pressure ** -0.71) * (feed_g_min ** 0.25) * \
-                 (viscosity_moni * 1000 ** 0.23) * (surface_tension_moni * 1000 ** 0.47) * (rho_l_input ** -0.12)
+        D32_um = (
+            108.7
+            * (atom_pressure ** -0.71)
+            * (feed_g_min ** 0.25)
+            * ((viscosity_moni * 1000.0) ** 0.23)
+            * ((surface_tension_moni * 1000.0) ** 0.47)
+            * (rho_l_input ** -0.12)
+        )
         D32_um = max(6.0, min(60.0, D32_um))
         R_initial_m = D32_um * 1e-6 / 2.0
 
@@ -147,7 +153,7 @@ def run_full_spray_drying_simulation(inputs):
         # ────────────────────────────────────────────────
         # 4. v_s_initial (dynamic from physics)
         # ────────────────────────────────────────────────
-        T_wb = calculate_wet_bulb_temperature(T1_C, RH1) if 'calculate_wet_bulb_temperature' in globals() else 35.0
+        T_wb = calculate_wet_bulb_temperature(T1_C, RH1)
         delta_T = T1_C - T_wb
         h_vap = 2260e3 - 2360 * T1_C  # dynamic latent heat
         compounds_list = []
@@ -251,135 +257,157 @@ def run_full_spray_drying_simulation(inputs):
             darcy_results = {'morphology_predicted': 'unknown', 'Pi_ratio': 1.0}
 
         # ────────────────────────────────────────────────
-        # Gas-side calculations & RH/moisture convergence (fixed order, no NameError)
+        # 6. Gas properties & constants (drying + atomizing)
         # ────────────────────────────────────────────────
-        # Gas properties (from your properties.py)
         gas_props_drying = fetch_gas_properties_from_table(gas1, T1_C)
         gas_props_atom = fetch_gas_properties_from_table(gas2, T2_C)
         drying_gas_props = gas_props_drying
         atom_gas_props = gas_props_atom
 
-        # Define R_d, R_ag, gamma BEFORE using them
         R_d = gas_props_drying.get('R', R_AIR)
         R_ag = gas_props_atom.get('R', R_AIR)
         gamma = gas_props_atom.get('gamma', 1.4)
-        mu_g_exit = gas_props_drying.get('mu_g', 1.8e-5)
-
-        # Adiabatic/mixed outlet temperatures
-        T_outlet_ag_adiabatic_K = T1_K - (T1_K - T_outlet_C) * 0.8
-        T_mixed_K = (T1_K * m1_m3ph + T2_K * feed_g_min) / (m1_m3ph + feed_g_min + 1e-6)
-        T_outlet_ag_K = T_outlet_C + 273.15
-
-        # Exit gas partial pressures & density (now R_d is defined)
-        Psat_out = calculate_psat_tetens(T_outlet_C)
-        Pv_out = (RH_out / 100) * Psat_out if 'RH_out' in locals() else 0.05 * Psat_out
-        p_d_atm_exit = 101325 - Pv_out
-        p_v_atm_exit = Pv_out
-        rho_ag_exit = (p_d_atm_exit / (R_d * T_outlet_ag_K)) + (p_v_atm_exit / (R_v * T_outlet_ag_K))
-        rho_final = rho_ag_exit
-
-        # Atomizing gas viscosity
+        mu_g_drying = gas_props_drying.get('mu_g', 1.8e-5)
         mu_g_atom = gas_props_atom.get('mu_g', 1.8e-5)
+        mu_g_exit = mu_g_drying
+        k_g_drying = gas_props_drying.get('k_g', 0.025)
+        D_v_drying = gas_props_drying.get('D_v', 2e-5)
 
-        # Ambient saturation and partial pressures
+        # ────────────────────────────────────────────────
+        # 7. Ambient + inlet partial pressures and humidity ratios
+        # ────────────────────────────────────────────────
         Psat_ambient = calculate_psat_tetens(T_ambient)
-        p_v_ambient = (RH1 / 100) * Psat_ambient
+        p_v_ambient = (RH1 / 100.0) * Psat_ambient
         p_d_ambient = 101325.0 - p_v_ambient
 
-        # Drying gas inlet partial pressures and humidity ratio
         Psat_initial = calculate_psat_tetens(T1_C)
-        p_v = (RH1 / 100) * Psat_initial
+        p_v = (RH1 / 100.0) * Psat_initial
         p_d = 101325.0 - p_v
         X_w = 0.622 * p_v / max(p_d, 1e-6)
 
-        # Atomizing gas inlet conditions
         Psat_initial_ag = calculate_psat_tetens(T2_C)
-        p_v_atm_in = (RH2 / 100) * Psat_initial_ag
+        p_v_atm_in = (RH2 / 100.0) * Psat_initial_ag
         p_d_atm_in = 101325.0 - p_v_atm_in
         X_w_atom = 0.622 * p_v_atm_in / max(p_d_atm_in, 1e-6)
         rho_atom_in = (p_d_atm_in / (R_ag * T2_K)) + (p_v_atm_in / (R_v * T2_K))
 
-        phi = RH_out / 100 if 'RH_out' in locals() else 0.5
+        # Specific heat of drying gas (dry + humid contribution)
+        C_p_dry_drying = 1005.0
+        C_p_humid_drying = C_p_dry_drying + X_w * C_p_vapor
+        C_p_humid_atom = C_p_dry_drying + X_w_atom * C_p_vapor
 
-        # Evaporation & condensate (mass balance)
-        evap_water_kgph = feed_g_min * (1 - solids_frac) * (1 - moisture_content) * 60
-        actual_water_evap = evap_water_kgph * 0.92
-        condensed_kg_s = evap_water_kgph / 3600 * 0.08
+        # Outlet gas temperatures
+        T_outlet_ag_adiabatic_K = T1_K - (T1_K - T_outlet_C) * 0.8
+        T_mixed_K = (T1_K * m1_m3ph + T2_K * feed_g_min) / (m1_m3ph + feed_g_min + 1e-6)
+        T_outlet_ag_K = T_outlet_C + 273.15
 
-        # Calibration & lab comparison (safe handling)
+        # ────────────────────────────────────────────────
+        # 8. Calibration & lab comparison (used by convergence output)
+        # ────────────────────────────────────────────────
         calibration_factor_raw = inputs.get('calibration_factor')
-        calibration_factor = float(calibration_factor_raw) if calibration_factor_raw is not None and not pd.isna(calibration_factor_raw) else 1.0
+        calibration_factor = (
+            float(calibration_factor_raw)
+            if calibration_factor_raw is not None and not pd.isna(calibration_factor_raw)
+            else 1.0
+        )
         observed_lab_frac = safe_float(inputs.get('observed_lab_moisture'), moisture_content)
-        moisture_predicted = moisture_content * calibration_factor
         measured_RH = safe_float(inputs.get('measured_RH'), RH1)
 
-        # RH/moisture convergence loop
+        # ────────────────────────────────────────────────
+        # 9. RH / moisture convergence loop (FIRST — dependent values computed after)
+        # ────────────────────────────────────────────────
         max_iter = 100
         rh_tol = 0.1
         moist_tol = 0.001
         curr_RH = RH1
         curr_moist = moisture_content
-        it = 0
-        evap_kgph = evap_water_kgph
         new_RH = RH1
-        Pv_out_local = Pv_out
-        Psat_out_local = Psat_out
-        new_moist = moisture_predicted
-
+        new_moist = moisture_content * calibration_factor
+        evap_kgph = feed_g_min * (1 - solids_frac) * (1 - moisture_content) * 60
+        Psat_out_local = calculate_psat_tetens(T_outlet_C)
+        Pv_out_local = (new_RH / 100.0) * Psat_out_local
+        it = 0
         while it < max_iter:
             Psat_out_local = calculate_psat_tetens(T_outlet_C)
-            Pv_out_local = (new_RH / 100) * Psat_out_local
+            Pv_out_local = (new_RH / 100.0) * Psat_out_local
             evap_kgph = feed_g_min * (1 - solids_frac) * (1 - new_moist) * 60
-            new_RH = RH1 + (100 - RH1) * (T_outlet_C / T1_C) * 0.8
-            new_moist = moisture_content * (1 + (new_RH - RH1) / 100)
+            new_RH = RH1 + (100.0 - RH1) * (T_outlet_C / T1_C) * 0.8
+            new_moist = moisture_content * (1 + (new_RH - RH1) / 100.0)
             if abs(new_RH - curr_RH) < rh_tol and abs(new_moist - curr_moist) < moist_tol:
                 break
             curr_RH = new_RH
             curr_moist = new_moist
             it += 1
 
-        # Update final values
         RH_out = new_RH
-        phi = RH_out / 100
+        phi = RH_out / 100.0
         moisture_predicted = new_moist
-        condensed_kg_s = evap_kgph / 3600 * 0.08
 
         # ────────────────────────────────────────────────
-        # Legacy nozzle/gas flow variables (dynamic from inputs/physics)
+        # 10. Outlet partial pressures & exit gas density (from converged RH_out)
         # ────────────────────────────────────────────────
-        P_exit = 101325.0  # atmospheric exit pressure (Pa)
-        atom_pressure_pa = atom_pressure * 101325  # convert bar to Pa (adjust multiplier if in psi)
-        Q_loss = 0.0  # heat loss (placeholder)
-        Cd = 0.23  # typical nozzle discharge coefficient
-        A_throat = math.pi / 4 * ((nozzle_cap_d_mm / 1000)**2 - (nozzle_tip_d_mm / 1000)**2)
-        pressure_ratio = P_exit / atom_pressure_pa if atom_pressure_pa > 0 else 0.5
-        crit_ratio = 0.528  # for air-like gas
-        choked_condition = pressure_ratio < crit_ratio
-        atom_gas_mass_flow = m1_m3ph * gas_props_atom.get('rho', 1.2) / 3600  # kg/s
-        T_throat = T2_K
-        c_throat = math.sqrt(gamma * R_ag * T_throat)  # speed of sound
-        term = 0.0  # placeholder
-        M_exit = 1.0 if choked_condition else 0.8
-        T_exit = T2_K * (1 + (gamma - 1)/2 * M_exit**2)**(-1)  # dynamic exit T
-        c_exit = math.sqrt(gamma * R_ag * T_exit)
-        u_ag = M_exit * c_exit  # exit velocity
-        m_dry_kg_s = (m1_m3ph / 3600) * rho_final
+        Psat_out = calculate_psat_tetens(T_outlet_C)
+        Pv_out = (RH_out / 100.0) * Psat_out
+        p_d_atm_exit = 101325.0 - Pv_out
+        p_v_atm_exit = Pv_out
+        rho_ag_exit = (p_d_atm_exit / (R_d * T_outlet_ag_K)) + (p_v_atm_exit / (R_v * T_outlet_ag_K))
+        rho_final = rho_ag_exit
 
-        # Legacy droplet numbers (dynamic from physics)
-        We = rho_liquid * u_ag**2 * (D32_um * 1e-6) / surface_tension_moni
-        Oh = viscosity_moni / math.sqrt(rho_liquid * surface_tension_moni * (D32_um * 1e-6))
-        D32_without_moni = D32_um * (1 + ratio * 0.1)  # inverse adjustment
-        D32_with_moni = D32_um
-        energy_balance = (h_vap * evap_water_kgph) / (m1_m3ph * C_p_water * delta_T)  # Q_evap / Q_in
-        efficiency = 1 - Q_loss / (m1_m3ph * C_p_water * T1_C) if m1_m3ph > 0 else 0.85
-        required_inlet_temp = T1_C + (T_outlet_C - T_mixed_K + 273.15)  # back-calc
-        sigma_effective = surface_tension_moni
-        Nu = 2 + 0.6 * math.sqrt(Re_droplet) * Pr_g**0.33 if 'Re_droplet' in locals() else 2.0
-        Sh = 2 + 0.6 * math.sqrt(Re_droplet) * Sc_v**0.33 if 'Re_droplet' in locals() else 2.0
-        h = Nu * gas_props_drying.get('k_g', 0.025) / (D32_um * 1e-6)
-        k_m = Sh * gas_props_drying.get('D_v', 2e-5) / (D32_um * 1e-6)
+        # ────────────────────────────────────────────────
+        # 11. Evaporation & condensate mass balance
+        # ────────────────────────────────────────────────
+        evap_water_kgph = evap_kgph
+        actual_water_evap = evap_water_kgph * 0.92
+        condensed_kg_s = evap_kgph / 3600.0 * 0.08
         condensed_bulk_kg_s = condensed_kg_s * 0.8
         condensed_surface_kg_s = condensed_kg_s * 0.2
+
+        # ────────────────────────────────────────────────
+        # 12. Nozzle / atomizing gas Mach flow
+        # ────────────────────────────────────────────────
+        P_exit = 101325.0
+        atom_pressure_pa = atom_pressure * 101325.0  # bar → Pa
+        Q_loss = 0.0
+        Cd = 0.23
+        A_throat = math.pi / 4.0 * ((nozzle_cap_d_mm / 1000.0) ** 2 - (nozzle_tip_d_mm / 1000.0) ** 2)
+        pressure_ratio = P_exit / atom_pressure_pa if atom_pressure_pa > 0 else 0.5
+        crit_ratio = 0.528
+        choked_condition = pressure_ratio < crit_ratio
+        T_throat = T2_K
+        c_throat = math.sqrt(gamma * R_ag * T_throat)
+        term = 0.0
+        M_exit = 1.0 if choked_condition else 0.8
+        T_exit = T2_K * (1 + (gamma - 1) / 2 * M_exit ** 2) ** (-1)
+        c_exit = math.sqrt(gamma * R_ag * T_exit)
+        u_ag = M_exit * c_exit  # atomizing gas exit velocity
+        atom_gas_mass_flow = rho_atom_in * u_ag * max(A_throat, 0.0) * Cd  # kg/s (dynamic from atom gas + nozzle)
+        m_dry_kg_s = (m1_m3ph / 3600.0) * rho_final
+
+        # ────────────────────────────────────────────────
+        # 13. Droplet dimensionless numbers (use dynamic u_ag and gas props)
+        # ────────────────────────────────────────────────
+        D32_m = D32_um * 1e-6
+        rho_g_drying_inlet = (p_d / (R_d * T1_K)) + (p_v / (R_v * T1_K))
+        Re_droplet = rho_g_drying_inlet * u_ag * D32_m / max(mu_g_drying, 1e-12)
+        Pr_g = mu_g_drying * C_p_humid_drying / max(k_g_drying, 1e-12)
+        Sc_v = mu_g_drying / max(rho_g_drying_inlet * D_v_drying, 1e-12)
+        Nu = 2.0 + 0.6 * math.sqrt(max(Re_droplet, 0.0)) * (Pr_g ** 0.33)
+        Sh = 2.0 + 0.6 * math.sqrt(max(Re_droplet, 0.0)) * (Sc_v ** 0.33)
+        h = Nu * k_g_drying / D32_m
+        k_m = Sh * D_v_drying / D32_m
+
+        # ────────────────────────────────────────────────
+        # 14. Droplet breakup + energy balance + efficiency + inverse design
+        # ────────────────────────────────────────────────
+        We = rho_liquid * u_ag ** 2 * D32_m / max(surface_tension_moni, 1e-12)
+        Oh = viscosity_moni / math.sqrt(max(rho_liquid * surface_tension_moni * D32_m, 1e-24))
+        D32_without_moni = D32_um * (1 + ratio * 0.1)
+        D32_with_moni = D32_um
+        energy_balance = (h_vap * evap_water_kgph) / max(m1_m3ph * C_p_humid_drying * delta_T, 1e-12)
+        efficiency = 1 - Q_loss / max(m1_m3ph * C_p_humid_drying * T1_C, 1e-12) if m1_m3ph > 0 else 0.85
+        T_mixed_C = T_mixed_K - 273.15
+        required_inlet_temp = T1_C + (T_outlet_C - T_mixed_C)  # back-calc in °C
+        sigma_effective = surface_tension_moni
         morphology_indicators = {'predicted': darcy_results.get('morphology_predicted', 'unknown')}
         t_eval = time_array
 
@@ -391,9 +419,9 @@ def run_full_spray_drying_simulation(inputs):
             buffer, buffer_conc, stabilizer_A, stab_A_conc, additive_B, additive_B_conc, additive_C,
             additive_C_conc, feed_g_min, rho_l_input, moisture_content, D10_actual, D50_actual, D90_actual,
             Span, ratio, viscosity_moni, surface_tension_moni, R_d, R_ag, gamma, h_vap, P_exit,
-            atom_pressure_pa, feed_g_min / 1000, Q_loss, Cd, T_ambient_K, drying_gas_props, atom_gas_props,
-            mu_g_atom, Psat_ambient, p_v_ambient, p_d_ambient, X_w, p_v, p_d, rho_final, 1005.0,
-            1005.0 + X_w * 1840, Psat_initial_ag, p_v_atm_in, p_d_atm_in, X_w_atom, 1005.0 + X_w_atom * 1840, rho_atom_in,
+            atom_pressure_pa, feed_g_min / 1000.0, Q_loss, Cd, T_ambient_K, drying_gas_props, atom_gas_props,
+            mu_g_atom, Psat_ambient, p_v_ambient, p_d_ambient, X_w, p_v, p_d, rho_final, C_p_dry_drying,
+            C_p_humid_drying, Psat_initial_ag, p_v_atm_in, p_d_atm_in, X_w_atom, C_p_humid_atom, rho_atom_in,
             A_throat, pressure_ratio, crit_ratio, choked_condition, atom_gas_mass_flow, T_throat, c_throat,
             term, M_exit, T_exit, c_exit, u_ag, m_dry_kg_s,
             T_outlet_ag_adiabatic_K, T_mixed_K, T_outlet_ag_K, p_v_atm_exit, p_d_atm_exit, rho_ag_exit, mu_g_exit, phi,

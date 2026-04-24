@@ -158,33 +158,21 @@ def save_output(result, inputs, filename="Upperton_data.xlsx", input_param_order
     """
     Save results with clean, readable row labels by mapping internal keys to display names.
     Enforces preferred_order when provided for perfect alignment.
-    Matches Upperton_data (1).xlsx style: parameters as rows, batches as columns.
+    Parameters as rows, batches as columns.
     """
-    # === DEBUG: Log inputs ===
-    print(f"\n=== DEBUG save_output ===")
-    print(f"input_param_order type: {type(input_param_order)}")
-    print(f"input_param_order is None: {input_param_order is None}")
-    if input_param_order is not None:
-        print(f"input_param_order length: {len(input_param_order)}")
-        print(f"First 5 params: {input_param_order[:5]}")
-    print(f"=========================\n")
-
     # Convert tuple result to dict if needed
     if isinstance(result, tuple) and len(result) == 2:
         param_names, values = result
         result_dict = dict(zip(param_names, values))
     elif isinstance(result, tuple):
-        # Raw tuple from simulation.py – use SIMULATION_PARAM_NAMES from enhanced plotter
+        # Raw tuple from simulation.py — fall back to positional keys
         try:
-            from enhanced_physics_evolution_plotter_FINAL import SIMULATION_PARAM_NAMES
+            from spraydrier.core.enhanced_physics_evolution_plotter_FINAL import SIMULATION_PARAM_NAMES
             result_dict = dict(zip(SIMULATION_PARAM_NAMES, result))
-        except ImportError:
+        except (ImportError, AttributeError):
             result_dict = {f"param_{i}": v for i, v in enumerate(result)}
     else:
-        result_dict = result
-
-    # Combine all data (calculated overrides inputs where keys match)
-    data_source = {**inputs, **result_dict}
+        result_dict = dict(result) if result is not None else {}
 
     # === Build rows in strict order ===
     rows = []
