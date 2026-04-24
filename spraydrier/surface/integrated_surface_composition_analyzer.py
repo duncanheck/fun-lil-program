@@ -101,29 +101,64 @@ class IntegratedSurfaceCompositionAnalyzer:
             else:
                 result_dict = result
 
-            # Unpack pe_metrics sub-dict so compound-specific keys are top-level
+            # Unpack nested sub-dicts so physics outputs are accessible at top level
             pe_metrics_dict = result_dict.get('pe_metrics', {})
             if isinstance(pe_metrics_dict, dict):
                 result_dict.update(pe_metrics_dict)
+
+            darcy_dict = result_dict.get('darcy_results', {})
+            if not isinstance(darcy_dict, dict):
+                darcy_dict = {}
+
+            enh = result_dict.get('enhanced_tg_results', {})
+            if not isinstance(enh, dict):
+                enh = {}
+
+            # Pe for additive: simulation creates additive_B / additive_C (suffixed) —
+            # take whichever was actually computed for this batch
+            def _first_present(*keys, default):
+                for k in keys:
+                    if k in result_dict:
+                        return result_dict[k]
+                return default
+
+            pe_additive_eff = _first_present(
+                'effective_pe_additive', 'effective_pe_additive_B', 'effective_pe_additive_C',
+                default=self.default_pe_values['additive'],
+            )
+
+            # Evaporation velocity: final value of v_s_array (lives inside enhanced_tg_results)
+            v_s_arr = enh.get('v_s_array')
+            if v_s_arr is not None and len(v_s_arr) > 0:
+                evaporation_velocity = float(v_s_arr[-1])
+            else:
+                evaporation_velocity = 1e-5
+
+            # Final droplet radius (µm → m); prefer last element, not first
+            radius_um = result_dict.get('radius_history_um')
+            if radius_um is not None and len(radius_um) > 0:
+                droplet_radius = float(radius_um[-1]) * 1e-6
+            else:
+                droplet_radius = 5e-6
 
             # Extract key physics outputs (dynamic from simulation)
             pe_d_data = {
                 'pe_drug': result_dict.get('effective_pe_drug', self.default_pe_values['drug']),
                 'pe_moni': result_dict.get('effective_pe_moni', self.default_pe_values['moni']),
                 'pe_stabilizer': result_dict.get('effective_pe_stabilizer', self.default_pe_values['stabilizer']),
-                'pe_additive': result_dict.get('effective_pe_additive', self.default_pe_values['additive']),
+                'pe_additive': pe_additive_eff,
                 'pe_buffer': result_dict.get('effective_pe_buffer', self.default_pe_values['buffer']),
                 'max_pe': result_dict.get('max_pe', 10.0),
                 'integrated_pe': result_dict.get('integrated_pe', 5.0),
                 'effective_pe': result_dict.get('effective_pe', 3.0),
-                'evaporation_velocity': result_dict.get('v_s_array', [1e-5])[-1] if 'v_s_array' in result_dict else 1e-5,
-                'droplet_radius': result_dict.get('radius_history_um', [5e-6])[0] * 1e-6 if 'radius_history_um' in result_dict else 5e-6,
+                'evaporation_velocity': evaporation_velocity,
+                'droplet_radius': droplet_radius,
                 'temperature_c': result_dict.get('T_outlet_C', 70.0),
                 'moisture_content': result_dict.get('moisture_predicted', 0.05),
                 'rh_outlet': result_dict.get('RH_out', 15.0),
                 'shell_formation_time': result_dict.get('shell_formation_time', 0.0),
-                'darcy_pi': result_dict.get('darcy_Pi_ratio', 1.0),
-                'darcy_delta_p': result_dict.get('darcy_Delta_P_Pa', 0.0)
+                'darcy_pi': darcy_dict.get('Pi_pressure_ratio', darcy_dict.get('darcy_Pi_ratio', 1.0)),
+                'darcy_delta_p': darcy_dict.get('Delta_P_Pa', darcy_dict.get('darcy_Delta_P_Pa', 0.0)),
             }
 
             print(f"[DEBUG surface] Extracted Pe/D data: {pe_d_data}")
