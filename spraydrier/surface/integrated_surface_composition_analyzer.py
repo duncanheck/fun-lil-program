@@ -53,22 +53,25 @@ class IntegratedSurfaceCompositionAnalyzer:
             'additive': 2e-10
         }
 
-    def run_simulation_for_trial(self, trial_data: pd.Series) -> Dict:
-        """Run simulation.py for a single trial and extract physics outputs."""
-        if not self.simulation_available:
-            print("  Simulation not available, using defaults")
-            return self.get_default_pe_d_values()
-
-        try:
-            # Map trial data to simulation inputs
+    def run_simulation_for_trial(self, trial_data, sim_out=None) -> Dict:
+        """
+        Extract physics outputs for a single trial.
+        If sim_out is provided (already-run simulation result dict), skip re-running
+        the simulation and extract Pe/D data directly from it.
+        """
+        if sim_out is not None:
+            result = sim_out
+        else:
+            if not self.simulation_available:
+                print("  Simulation not available, using defaults")
+                return self.get_default_pe_d_values()
             inputs = self.map_training_parameters(trial_data)
-
-            # Run simulation
             result = run_full_spray_drying_simulation(inputs)
 
-            if result is None or not isinstance(result, (tuple, dict)):
-                print("  Simulation returned invalid type, using defaults")
-                return self.get_default_pe_d_values()
+        if result is None or not isinstance(result, (tuple, dict)):
+            print("  Simulation returned invalid type, using defaults")
+            return self.get_default_pe_d_values()
+        try:
 
             # Convert tuple to dict if needed
             if isinstance(result, tuple):

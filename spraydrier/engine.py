@@ -297,13 +297,12 @@ class SprayDryerEngine:
             if cal.d50_factor != 1.0:
                 sim_out['D50_calc'] = sim_out.get('D50_calc', 3.0) * cal.d50_factor
 
-            # Surface analysis (fixed: no 'sim_out' kwarg)
+            # Surface analysis — reuse the already-computed sim_out (do NOT re-run the simulation)
             if self.surface_analyzer is not None:
                 try:
-                    surface_params = dict(raw_params)
-                    surface_params.update(sim_inputs)
-                    surface_out = self.surface_analyzer.run_simulation_for_trial(surface_params)
-                    print(f"[DEBUG] Surface out type: {type(surface_out)}")
+                    surface_out = self.surface_analyzer.run_simulation_for_trial(
+                        trial_data=sim_inputs, sim_out=sim_out
+                    )
                     if isinstance(surface_out, dict):
                         outputs.update(surface_out)
                     else:

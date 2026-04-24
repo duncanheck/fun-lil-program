@@ -142,12 +142,20 @@ def run_full_spray_drying_simulation(inputs):
         R_initial_m = D32_um * 1e-6 / 2.0
 
         # ────────────────────────────────────────────────
-        # 3. Dynamic D_solute (from diffusion_coefficient.py)
+        # 3. Dynamic D per compound (from diffusion_coefficient.py) — all present compounds
         # ────────────────────────────────────────────────
-        D_dict = calculate_diffusion_for_compounds(
-            [{'name': 'drug', 'mw': ds_mw, 'conc_mg_ml': ds_conc, 'class': 'protein'}],
-            T=T1_K, eta_eff=viscosity
-        )
+        compounds_for_D = [{'name': 'drug', 'mw': ds_mw, 'conc_mg_ml': ds_conc, 'class': 'protein'}]
+        if moni_conc > 0:
+            compounds_for_D.append({'name': 'moni', 'mw': 6800.0, 'conc_mg_ml': moni_conc, 'class': 'polymer'})
+        if buffer_conc > 0:
+            compounds_for_D.append({'name': 'buffer', 'mw': 1000.0, 'conc_mg_ml': buffer_conc, 'class': 'buffer'})
+        if stab_A_conc > 0:
+            compounds_for_D.append({'name': 'stabilizer', 'mw': 5000.0, 'conc_mg_ml': stab_A_conc, 'class': 'stabilizer'})
+        if additive_B_conc > 0:
+            compounds_for_D.append({'name': 'additive_B', 'mw': 500.0, 'conc_mg_ml': additive_B_conc, 'class': 'additive'})
+        if additive_C_conc > 0:
+            compounds_for_D.append({'name': 'additive_C', 'mw': 500.0, 'conc_mg_ml': additive_C_conc, 'class': 'additive'})
+        D_dict = calculate_diffusion_for_compounds(compounds_for_D, T=T1_K, eta_eff=viscosity)
         D_solute = D_dict.get('drug', 1e-9)
 
         # ────────────────────────────────────────────────
@@ -208,8 +216,8 @@ def run_full_spray_drying_simulation(inputs):
             debug=True
         )
 
-        # Extract with fallbacks
-        radius_history_um = enhanced_tg_results.get('radius_array_um', np.array([initial_radius_um])) * 1e6
+        # Extract with fallbacks (radius_array_um is already in µm — DO NOT multiply again)
+        radius_history_um = np.asarray(enhanced_tg_results.get('radius_array_um', np.array([initial_radius_um])))
         Tg_array = enhanced_tg_results.get('Tg_array', np.array([]))
         temperature_array = enhanced_tg_results.get('temperature_array', np.array([]))
         shell_formation_time = enhanced_tg_results.get('shell_formation_time', None)
@@ -222,7 +230,7 @@ def run_full_spray_drying_simulation(inputs):
 
         print(f"[DEBUG] Extracted radius history: {len(radius_history_um)} points, final = {radius_history_um[-1]:.2f} µm")
 
-        # Pe metrics
+        # Pe metrics — pass every compound with a valid D so compound-specific keys are produced
         pe_metrics = {}
         try:
             pe_metrics = calculate_all_peclet_metrics(
@@ -230,7 +238,7 @@ def run_full_spray_drying_simulation(inputs):
                 radius_history_um,
                 v_s_array,
                 D_solute,
-                D_compounds_m2_s={'drug': D_dict.get('drug', 1e-9)}
+                D_compounds_m2_s={name: d for name, d in D_dict.items() if d and d > 0},
             )
         except Exception as pe_err:
             print(f"[WARN] Pe failed: {pe_err} - using fallback")
